@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="تكسي البصرة">
+<link rel="apple-touch-icon" href="icon.png">
+<title>تكسي البصرة</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #14213d; --muted: #5c677d; --line: #d9dee7; --chip: #eef2f6;
+    --accent: #0b6e4f; --accent-fg: #ffffff; --warn: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #10151c; --fg: #f1f4f8; --muted: #9aa5b4; --line: #2a3340; --chip: #1c2430; --accent: #ffc20e; --accent-fg: #1a1500; --warn: #ff8a80; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body { font-family: -apple-system, "SF Arabic", "Geeza Pro", system-ui, sans-serif; background: var(--bg); color: var(--fg); display: flex; flex-direction: column; overscroll-behavior: none; }
+  header { padding: calc(env(safe-area-inset-top, 0px) + 8px) 10px 8px; border-bottom: 1px solid var(--line); background: var(--bg); z-index: 1000; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row + .row { margin-top: 8px; }
+  input[type=search], input[type=number], select { flex: 1; min-width: 0; font: inherit; font-size: 17px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--fg); }
+  button { font: inherit; font-size: 16px; min-height: 44px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--chip); color: var(--fg); }
+  button.on, button.main { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 700; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .seg { flex: 1; }
+  #chips { overflow-x: auto; white-space: nowrap; gap: 8px; padding-bottom: 2px; scrollbar-width: none; }
+  #chips::-webkit-scrollbar { display: none; }
+  #chips button { flex: none; min-height: 38px; font-size: 15px; border-radius: 20px; }
+  .none { color: var(--muted); font-size: 14px; }
+  #map { flex: 1; min-height: 120px; }
+  footer { padding: 10px 14px calc(env(safe-area-inset-bottom, 0px) + 10px); border-top: 1px solid var(--line); background: var(--bg); }
+  #km { font-size: 19px; }
+  #fare { font-size: 38px; font-weight: 800; color: var(--accent); line-height: 1.15; }
+  #hint { color: var(--muted); font-size: 14px; min-height: 20px; }
+  label.rt { display: flex; align-items: center; gap: 8px; font-size: 17px; flex: 1; }
+  label.rt input { width: 24px; height: 24px; accent-color: var(--accent); }
+  .sheet { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 2000; display: none; }
+  .sheet.open { display: block; }
+  .card { position: absolute; inset: auto 0 0 0; max-height: 88%; overflow-y: auto; background: var(--bg); border-radius: 18px 18px 0 0; padding: 14px 14px calc(env(safe-area-inset-bottom, 0px) + 16px); }
+  .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 20px; }
+  .field { margin: 12px 0; }
+  .field span { display: block; color: var(--muted); font-size: 14px; margin-bottom: 4px; }
+  .item { display: flex; justify-content: space-between; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 16px; }
+  .item small { color: var(--muted); display: block; }
+  .total { font-size: 24px; font-weight: 800; color: var(--accent); margin: 6px 0 10px; }
+  .del { color: var(--warn); }
+  h3 { margin: 18px 0 6px; font-size: 17px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="row">
+    <input id="q" type="search" placeholder="ابحث عن منطقة (مثال: العشار)" enterkeyhint="search">
+    <button id="go">بحث</button>
+  </div>
+  <div class="row" id="chips"></div>
+  <div class="row">
+    <button class="seg" id="mEnd">الوجهة</button>
+    <button class="seg" id="mStart">البداية</button>
+    <button id="swap" aria-label="عكس الاتجاه">⇄</button>
+    <button id="me">موقعي</button>
+  </div>
+</header>
+
+<div id="map"></div>
+
+<footer>
+  <div id="km">اضغط على الخريطة لتحديد الوجهة</div>
+  <div id="fare"></div>
+  <div id="hint"></div>
+  <div class="row">
+    <label class="rt"><input type="checkbox" id="rt"> ذهاب وعودة</label>
+    <button id="fav">⭐ احفظ المكان</button>
+  </div>
+  <div class="row">
+    <button class="main seg" id="logIt">سجّل الرحلة</button>
+    <button id="openLog">📒 اليوم</button>
+    <button id="openSet">⚙️</button>
+  </div>
+</footer>
+
+<div class="sheet" id="sheet">
+  <div class="card">
+    <div class="top"><b id="sheetTitle"></b><button id="close">إغلاق</button></div>
+    <div id="sheetBody"></div>
+  </div>
+</div>
+
+<script>
+/* ---------- التخزين على الجهاز ---------- */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+};
+let cfg  = Object.assign({ perKm: 1000, min: 3000, round: 250 }, store.get('cfg', {}));
+let favs = store.get('favs', []);
+let log  = store.get('log', []);
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const money = n => Math.round(n).toLocaleString('en-US') + ' د.ع';
+
+/* ---------- الخريطة (البصرة فقط) ---------- */
+const BOUNDS = L.latLngBounds([30.30, 47.55], [30.75, 48.10]);
+const map = L.map('map', { maxBounds: BOUNDS, maxBoundsViscosity: 1, minZoom: 11, zoomControl: false })
+  .setView([30.5085, 47.7835], 12);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+
+let mode = 'end';
+let start = null, end = null, startLabel = '', endLabel = '';
+let startMk = null, endMk = null, routeLine = null;
+let last = null; // {km, min}
+
+function setMode(m) {
+  mode = m;
+  $('mEnd').classList.toggle('on', m === 'end');
+  $('mStart').classList.toggle('on', m === 'start');
+  $('hint').textContent = m === 'end' ? 'اضغط على الخريطة لتحديد الوجهة' : 'اضغط على الخريطة لتحديد البداية';
+}
+
+function marker(ll, color) {
+  return L.circleMarker(ll, { radius: 10, color: '#fff', weight: 3, fillColor: color, fillOpacity: 1 }).addTo(map);
+}
+
+function drawMarkers() {
+  if (startMk) map.removeLayer(startMk);
+  if (endMk) map.removeLayer(endMk);
+  startMk = start ? marker(start, '#0b6e4f') : null;
+  endMk = end ? marker(end, '#d62828') : null;
+}
+
+function setPoint(which, ll, label) {
+  if (which === 'start') { start = ll; startLabel = label || 'نقطة على الخريطة'; }
+  else { end = ll; endLabel = label || 'نقطة على الخريطة'; }
+  drawMarkers();
+  route();
+}
+
+/* ---------- حساب الطريق ---------- */
+async function route() {
+  if (!start || !end) return;
+  $('km').textContent = 'جاري حساب الطريق...';
+  $('fare').textContent = '';
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
+    const d = await (await fetch(url)).json();
+    if (d.code !== 'Ok') throw new Error(d.code);
+    const r = d.routes[0];
+    last = { km: r.distance / 1000, min: Math.max(1, Math.round(r.duration / 60)) };
+    if (routeLine) map.removeLayer(routeLine);
+    routeLine = L.geoJSON(r.geometry, { style: { color: '#1d6fe0', weight: 6, opacity: 0.9 } }).addTo(map);
+    map.fitBounds(routeLine.getBounds(), { padding: [40, 40] });
+    render();
+  } catch (e) {
+    last = null;
+    $('km').textContent = 'تعذر حساب الطريق. تأكد من الإنترنت.';
+  }
+}
+
+function fareFor(km) {
+  const k = $('rt').checked ? km * 2 : km;
+  const raw = Math.max(cfg.min, k * cfg.perKm);
+  return Math.ceil(raw / cfg.round) * cfg.round;
+}
+
+function render() {
+  if (!last) return;
+  const rt = $('rt').checked;
+  const km = rt ? last.km * 2 : last.km;
+  const min = rt ? last.min * 2 : last.min;
+  $('km').textContent = `${km.toFixed(1)} كم — ${min} دقيقة`;
+  $('fare').textContent = money(fareFor(last.km));
+  $('hint').textContent = rt ? 'ذهاب وعودة (بدون انتظار)' : '';
+}
+
+/* ---------- الموقع والبحث ---------- */
+function locate() {
+  if (!navigator.geolocation) { $('hint').textContent = 'المتصفح لا يدعم تحديد الموقع'; return; }
+  $('hint').textContent = 'جاري تحديد موقعك...';
+  navigator.geolocation.getCurrentPosition(
+    p => {
+      const ll = L.latLng(p.coords.latitude, p.coords.longitude);
+      setPoint('start', ll, 'موقعي');
+      if (!end) map.setView(ll, 14);
+      setMode('end');
+    },
+    () => { $('hint').textContent = 'ما گدرت أحدد موقعك. فعّل الموقع لـ Safari أو حدد البداية من الخريطة.'; },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+  );
+}
+
+async function search() {
+  const q = $('q').value.trim();
+  if (!q) return;
+  $('hint').textContent = 'جاري البحث...';
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=ar&viewbox=47.55,30.75,48.10,30.30&bounded=1&q=${encodeURIComponent(q)}`;
+    const d = await (await fetch(url)).json();
+    if (!d.length) { $('hint').textContent = 'ما لگيت هذا المكان بالبصرة. جرب اسم ثاني أو اضغط على الخريطة.'; return; }
+    const ll = L.latLng(+d[0].lat, +d[0].lon);
+    map.setView(ll, 15);
+    setPoint(mode, ll, q);
+    $('hint').textContent = '';
+  } catch (e) {
+    $('hint').textContent = 'تعذر البحث. تأكد من الإنترنت.';
+  }
+}
+
+/* ---------- الأماكن المحفوظة ---------- */
+function renderChips() {
+  const box = $('chips');
+  box.innerHTML = '';
+  if (!favs.length) {
+    box.innerHTML = '<span class="none">احفظ أماكنك المعتادة بزر ⭐ وتظهر هنا</span>';
+    return;
+  }
+  favs.forEach(f => {
+    const b = document.createElement('button');
+    b.textContent = f.n;
+    b.onclick = () => { const ll = L.latLng(f.lat, f.lng); map.setView(ll, 15); setPoint(mode, ll, f.n); };
+    box.appendChild(b);
+  });
+}
+
+function saveFav() {
+  if (!end) { $('hint').textContent = 'حدد الوجهة أولاً ثم اضغط ⭐'; return; }
+  const n = prompt('اسم المكان؟', endLabel === 'نقطة على الخريطة' ? '' : endLabel);
+  if (!n || !n.trim()) return;
+  favs.push({ n: n.trim(), lat: end.lat, lng: end.lng });
+  store.set('favs', favs);
+  renderChips();
+  $('hint').textContent = 'تم حفظ المكان';
+}
+
+/* ---------- سجل الرحلات ---------- */
+function logTrip() {
+  if (!last) { $('hint').textContent = 'احسب رحلة أولاً'; return; }
+  const rt = $('rt').checked;
+  log.push({
+    t: Date.now(), from: startLabel, to: endLabel + (rt ? ' (ذهاب وعودة)' : ''),
+    km: rt ? last.km * 2 : last.km, fare: fareFor(last.km)
+  });
+  store.set('log', log);
+  $('hint').textContent = 'تم تسجيل الرحلة ✔';
+}
+
+const sameDay = t => new Date(t).toDateString() === new Date().toDateString();
+
+function openSheet(title, html) {
+  $('sheetTitle').textContent = title;
+  $('sheetBody').innerHTML = html;
+  $('sheet').classList.add('open');
+}
+function closeSheet() { $('sheet').classList.remove('open'); }
+
+function openLog() {
+  const today = log.filter(x => sameDay(x.t));
+  const total = today.reduce((s, x) => s + x.fare, 0);
+  const km = today.reduce((s, x) => s + x.km, 0);
+  let html = `<div class="total">${money(total)}</div><div>${today.length} رحلة — ${km.toFixed(1)} كم</div>`;
+  if (!today.length) html += '<p class="none">ما اكو رحلات مسجلة اليوم.</p>';
+  today.slice().reverse().forEach(x => {
+    const time = new Date(x.t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    html += `<div class="item"><div>${esc(x.to)}<small>${time} — من ${esc(x.from)} — ${x.km.toFixed(1)} كم</small></div><b>${money(x.fare)}</b></div>`;
+  });
+  if (today.length) html += '<h3>تعديل</h3><button id="undo">حذف آخر رحلة</button>';
+  openSheet('رحلات اليوم', html);
+  const u = $('undo');
+  if (u) u.onclick = () => {
+    for (let i = log.length - 1; i >= 0; i--) { if (sameDay(log[i].t)) { log.splice(i, 1); break; } }
+    store.set('log', log); openLog();
+  };
+}
+
+/* ---------- الإعدادات ---------- */
+function openSettings() {
+  let html = `
+    <div class="field"><span>سعر الكيلومتر (دينار)</span><input type="number" id="cPer" inputmode="numeric" value="${cfg.perKm}"></div>
+    <div class="field"><span>أقل أجرة (دينار)</span><input type="number" id="cMin" inputmode="numeric" value="${cfg.min}"></div>
+    <div class="field"><span>تقريب الأجرة لأقرب</span>
+      <select id="cRound">${[250, 500, 1000].map(v => `<option value="${v}" ${cfg.round === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+    <h3>الأماكن المحفوظة</h3>`;
+  if (!favs.length) html += '<p class="none">ما اكو أماكن محفوظة.</p>';
+  favs.forEach((f, i) => { html += `<div class="item"><span>${esc(f.n)}</span><button class="del" data-i="${i}">حذف</button></div>`; });
+  openSheet('الإعدادات', html);
+  const save = () => {
+    cfg.perKm = Math.max(0, +$('cPer').value || 0);
+    cfg.min = Math.max(0, +$('cMin').value || 0);
+    cfg.round = +$('cRound').value || 250;
+    store.set('cfg', cfg); render();
+  };
+  ['cPer', 'cMin', 'cRound'].forEach(id => $(id).addEventListener('input', save));
+  document.querySelectorAll('.del').forEach(b => b.onclick = () => {
+    favs.splice(+b.dataset.i, 1); store.set('favs', favs); renderChips(); openSettings();
+  });
+}
+
+/* ---------- الأزرار ---------- */
+map.on('click', e => setPoint(mode, e.latlng));
+$('mEnd').onclick = () => setMode('end');
+$('mStart').onclick = () => setMode('start');
+$('me').onclick = locate;
+$('go').onclick = search;
+$('q').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+$('swap').onclick = () => {
+  if (!start || !end) return;
+  [start, end] = [end, start];
+  [startLabel, endLabel] = [endLabel, startLabel];
+  drawMarkers(); route();
+};
+$('rt').onchange = render;
+$('fav').onclick = saveFav;
+$('logIt').onclick = logTrip;
+$('openLog').onclick = openLog;
+$('openSet').onclick = openSettings;
+$('close').onclick = closeSheet;
+$('sheet').addEventListener('click', e => { if (e.target === $('sheet')) closeSheet(); });
+
+renderChips();
+setMode('end');
+locate();
+</script>
+</body>
+</html>
